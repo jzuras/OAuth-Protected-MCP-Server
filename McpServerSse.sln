@@ -1,0 +1,29 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36221.1
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpServerSse", "McpServerSse\McpServerSse.csproj", "{0F4F9420-11BC-4FBA-9548-F4640E4E60D2}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0F4F9420-11BC-4FBA-9548-F4640E4E60D2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0F4F9420-11BC-4FBA-9548-F4640E4E60D2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0F4F9420-11BC-4FBA-9548-F4640E4E60D2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0F4F9420-11BC-4FBA-9548-F4640E4E60D2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{103C7407-9DB9-89E0-77F4-C5309BFC82B8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{103C7407-9DB9-89E0-77F4-C5309BFC82B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{103C7407-9DB9-89E0-77F4-C5309BFC82B8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{103C7407-9DB9-89E0-77F4-C5309BFC82B8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {60B4FA8D-829A-4A16-95AF-47499DC4DE95}
+	EndGlobalSection
+EndGlobal
