@@ -166,24 +166,29 @@ public class Program
     #region Auth Code
 
     // --- State Management for In-Memory Auth Server ---
-    private static readonly RSA _rsa = RSA.Create(2048);
+    private static readonly RSA _rsa = CreatePersistentRSAKey();
     private static readonly string _keyId = Guid.NewGuid().ToString();
     private static readonly ConcurrentDictionary<string, ClientInfo> _clients = new();
     private static readonly ConcurrentDictionary<string, AuthorizationCodeInfo> _authCodes = new();
     private static readonly ConcurrentDictionary<string, TokenInfo> _tokens = new();
     private static bool _hasIssuedExpiredToken = false;
-    private static bool _hasIssuedRefreshToken = false;
+
+    private static readonly string ClientsFile = "oauth-clients.json";
 
     /// <summary>
     /// Adds all necessary OAuth 2.0 and OIDC endpoints to the application pipeline.
     /// </summary>
     public static void AddOAuthEndpoints(WebApplication app, string issuerUrl, string resourceUrl)
     {
+        // Load existing clients from file
+        LoadClientsFromFile();
+
         var validResources = new[] { resourceUrl };
         var demoClientId = "demo-client";
         var demoClientSecret = "demo-secret";
 
         // --- Pre-configured Clients ---
+        // (these will overwrite if they exist)
         _clients[demoClientId] = new ClientInfo
         {
             ClientId = demoClientId,
@@ -203,7 +208,7 @@ public class Program
            .ExcludeFromDescription();
 
         string[] metadataEndpoints = [
-            "/.well-known/oauth-authorization-server", 
+            "/.well-known/oauth-authorization-server",
             "/.well-known/openid-configuration"
         ];
 
@@ -231,15 +236,15 @@ public class Program
         app.MapGet("/.well-known/jwks.json", () =>
         {
             var parameters = _rsa.ExportParameters(false);
-            
+
             return Results.Ok(new JsonWebKeySet
             {
                 Keys = [
-                    new JsonWebKey 
+                    new JsonWebKey
                     {
-                        KeyType = "RSA", 
-                        Use = "sig", 
-                        KeyId = _keyId, 
+                        KeyType = "RSA",
+                        Use = "sig",
+                        KeyId = _keyId,
                         Algorithm = "RS256",
                         Exponent = WebEncoders.Base64UrlEncode(parameters.Exponent!),
                         Modulus = WebEncoders.Base64UrlEncode(parameters.Modulus!)
@@ -249,13 +254,13 @@ public class Program
         }).ExcludeFromDescription();
 
         app.MapGet("/authorize", (
-            [FromQuery] string client_id, 
-            [FromQuery] string? redirect_uri, 
+            [FromQuery] string client_id,
+            [FromQuery] string? redirect_uri,
             [FromQuery] string response_type,
-            [FromQuery] string code_challenge, 
-            [FromQuery] string code_challenge_method, 
+            [FromQuery] string code_challenge,
+            [FromQuery] string code_challenge_method,
             [FromQuery] string? scope,
-            [FromQuery] string? state, 
+            [FromQuery] string? state,
             [FromQuery] string? resource) =>
         {
             // Validate client
@@ -277,19 +282,19 @@ public class Program
                 }
                 else
                 {
-                    return Results.BadRequest(new OAuthErrorResponse 
-                    { 
-                        Error = "invalid_request", 
-                        ErrorDescription = "redirect_uri is required" 
+                    return Results.BadRequest(new OAuthErrorResponse
+                    {
+                        Error = "invalid_request",
+                        ErrorDescription = "redirect_uri is required"
                     });
                 }
             }
             else if (!client.RedirectUris.Contains(redirect_uri))
             {
-                return Results.BadRequest(new OAuthErrorResponse 
-                { 
-                    Error = "invalid_request", 
-                    ErrorDescription = "Unregistered redirect_uri" 
+                return Results.BadRequest(new OAuthErrorResponse
+                {
+                    Error = "invalid_request",
+                    ErrorDescription = "Unregistered redirect_uri"
                 });
             }
 
@@ -298,13 +303,13 @@ public class Program
             {
                 return Results.Redirect($"{redirect_uri}?error=unsupported_response_type&state={state}");
             }
-            
+
             // Validate code_challenge_method
             if (code_challenge_method != "S256")
             {
                 return Results.Redirect($"{redirect_uri}?error=invalid_request&error_description=Only+S256+is+supported&state={state}");
             }
-            
+
             // Validate resource
             if (string.IsNullOrEmpty(resource) || !validResources.Contains(resource))
             {
@@ -313,24 +318,24 @@ public class Program
 
             // Generate authorization code and store it
             var code = GenerateRandomToken();
-            
-            _authCodes[code] = new AuthorizationCodeInfo 
-            { 
-                ClientId = client_id, 
-                RedirectUri = redirect_uri, 
-                CodeChallenge = code_challenge, 
-                Scope = scope?.Split(' ').ToList() ?? [], 
-                Resource = new Uri(resource) 
+
+            _authCodes[code] = new AuthorizationCodeInfo
+            {
+                ClientId = client_id,
+                RedirectUri = redirect_uri,
+                CodeChallenge = code_challenge,
+                Scope = scope?.Split(' ').ToList() ?? [],
+                Resource = new Uri(resource)
             };
-            
+
             // Build redirect URL with code
             var redirectUrl = $"{redirect_uri}?code={code}";
-            
+
             if (!string.IsNullOrEmpty(state))
             {
                 redirectUrl += $"&state={Uri.EscapeDataString(state)}";
             }
-            
+
             return Results.Redirect(redirectUrl);
         }).ExcludeFromDescription();
 
@@ -338,20 +343,20 @@ public class Program
         {
             var form = await context.Request.ReadFormAsync();
             var client = AuthenticateClient(form);
-            
+
             if (client == null)
             {
                 return Results.Unauthorized();
             }
 
             var resource = form["resource"].ToString();
-            
+
             if (string.IsNullOrEmpty(resource) || !validResources.Contains(resource))
             {
-                return Results.BadRequest(new OAuthErrorResponse 
-                { 
-                    Error = "invalid_target", 
-                    ErrorDescription = "The specified resource is not valid." 
+                return Results.BadRequest(new OAuthErrorResponse
+                {
+                    Error = "invalid_target",
+                    ErrorDescription = "The specified resource is not valid."
                 });
             }
 
@@ -366,52 +371,50 @@ public class Program
             if (grantType == "authorization_code")
             {
                 var code = form["code"].ToString();
-                
+
                 if (string.IsNullOrEmpty(code) || !_authCodes.TryRemove(code, out var codeInfo))
                 {
-                    return Results.BadRequest(new OAuthErrorResponse 
-                    { 
-                        Error = "invalid_grant", 
-                        ErrorDescription = "Invalid authorization code" 
+                    return Results.BadRequest(new OAuthErrorResponse
+                    {
+                        Error = "invalid_grant",
+                        ErrorDescription = "Invalid authorization code"
                     });
                 }
-                
+
                 if (codeInfo.ClientId != client.ClientId)
                 {
-                    return Results.BadRequest(new OAuthErrorResponse 
-                    { 
-                        Error = "invalid_grant", 
-                        ErrorDescription = "Code was not issued to this client" 
+                    return Results.BadRequest(new OAuthErrorResponse
+                    {
+                        Error = "invalid_grant",
+                        ErrorDescription = "Code was not issued to this client"
                     });
                 }
-                
+
                 if (!VerifyCodeChallenge(form["code_verifier"].ToString(), codeInfo.CodeChallenge))
                 {
-                    return Results.BadRequest(new OAuthErrorResponse 
-                    { 
-                        Error = "invalid_grant", 
-                        ErrorDescription = "Invalid code_verifier" 
+                    return Results.BadRequest(new OAuthErrorResponse
+                    {
+                        Error = "invalid_grant",
+                        ErrorDescription = "Invalid code_verifier"
                     });
                 }
 
                 return Results.Ok(GenerateJwtTokenResponse(client.ClientId, codeInfo.Scope, codeInfo.Resource, issuerUrl));
             }
-            
+
             if (grantType == "refresh_token")
             {
                 var refreshToken = form["refresh_token"].ToString();
-                
+
                 if (string.IsNullOrEmpty(refreshToken) || !_tokens.TryRemove(refreshToken, out var tokenInfo) || tokenInfo.ClientId != client.ClientId)
                 {
-                    return Results.BadRequest(new OAuthErrorResponse 
-                    { 
-                        Error = "invalid_grant", 
-                        ErrorDescription = "Invalid refresh token" 
+                    return Results.BadRequest(new OAuthErrorResponse
+                    {
+                        Error = "invalid_grant",
+                        ErrorDescription = "Invalid refresh token"
                     });
                 }
 
-                _hasIssuedRefreshToken = true;
-                
                 return Results.Ok(GenerateJwtTokenResponse(client.ClientId, tokenInfo.Scopes, tokenInfo.Resource, issuerUrl));
             }
 
@@ -427,7 +430,7 @@ public class Program
         {
             var form = await context.Request.ReadFormAsync();
             var token = form["token"].ToString();
-            
+
             if (string.IsNullOrEmpty(token))
             {
                 return Results.BadRequest(new OAuthErrorResponse
@@ -443,17 +446,17 @@ public class Program
                 {
                     return Results.Ok(new TokenIntrospectionResponse { Active = false });
                 }
-                
-                return Results.Ok(new TokenIntrospectionResponse 
-                { 
-                    Active = true, 
-                    ClientId = tokenInfo.ClientId, 
-                    Scope = string.Join(" ", tokenInfo.Scopes), 
-                    ExpirationTime = tokenInfo.ExpiresAt.ToUnixTimeSeconds(), 
-                    Audience = tokenInfo.Resource?.ToString() 
+
+                return Results.Ok(new TokenIntrospectionResponse
+                {
+                    Active = true,
+                    ClientId = tokenInfo.ClientId,
+                    Scope = string.Join(" ", tokenInfo.Scopes),
+                    ExpirationTime = tokenInfo.ExpiresAt.ToUnixTimeSeconds(),
+                    Audience = tokenInfo.Resource?.ToString()
                 });
             }
-            
+
             return Results.Ok(new TokenIntrospectionResponse { Active = false });
         }).ExcludeFromDescription();
 
@@ -484,7 +487,7 @@ public class Program
             // Validate redirect URIs format
             foreach (var redirectUri in registrationRequest.RedirectUris)
             {
-                if (!Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri) || 
+                if (!Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri) ||
                     (uri.Scheme != "http" && uri.Scheme != "https"))
                 {
                     return Results.BadRequest(new OAuthErrorResponse
@@ -498,13 +501,15 @@ public class Program
             // Generate client credentials and store the registered client
             var clientId = $"dyn-{Guid.NewGuid():N}";
             var clientSecret = GenerateRandomToken();
-            
-            _clients[clientId] = new ClientInfo 
-            { 
-                ClientId = clientId, 
-                ClientSecret = clientSecret, 
-                RedirectUris = registrationRequest.RedirectUris 
+
+            _clients[clientId] = new ClientInfo
+            {
+                ClientId = clientId,
+                ClientSecret = clientSecret,
+                RedirectUris = registrationRequest.RedirectUris
             };
+
+            SaveClientsToFile();
 
             return Results.Ok(new ClientRegistrationResponse
             {
@@ -526,12 +531,12 @@ public class Program
     {
         var clientId = form["client_id"].ToString();
         var clientSecret = form["client_secret"].ToString();
-        
+
         if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
         {
             return null;
         }
-        
+
         return _clients.TryGetValue(clientId, out var client) && client.ClientSecret == clientSecret ? client : null;
     }
 
@@ -539,7 +544,7 @@ public class Program
     {
         var expiresIn = TimeSpan.FromHours(8);
         var issuedAt = DateTimeOffset.UtcNow;
-        
+
         if (clientId == "test-refresh-client" && !_hasIssuedExpiredToken)
         {
             _hasIssuedExpiredToken = true;
@@ -548,24 +553,24 @@ public class Program
 
         var expiresAt = issuedAt.Add(expiresIn);
         var jwtId = Guid.NewGuid().ToString();
-        
-        var header = new Dictionary<string, string> 
-        { 
-            { "alg", "RS256" }, 
-            { "typ", "JWT" }, 
-            { "kid", _keyId } 
+
+        var header = new Dictionary<string, string>
+        {
+            { "alg", "RS256" },
+            { "typ", "JWT" },
+            { "kid", _keyId }
         };
-        
+
         var payload = new Dictionary<string, object>
         {
-            { "iss", issuerUrl }, 
-            { "sub", $"user-{clientId}" }, 
+            { "iss", issuerUrl },
+            { "sub", $"user-{clientId}" },
             { "name", $"Test User for {clientId}" },
-            { "aud", resource?.ToString() ?? clientId }, 
-            { "client_id", clientId }, 
+            { "aud", resource?.ToString() ?? clientId },
+            { "client_id", clientId },
             { "jti", jwtId },
-            { "iat", issuedAt.ToUnixTimeSeconds() }, 
-            { "exp", expiresAt.ToUnixTimeSeconds() }, 
+            { "iat", issuedAt.ToUnixTimeSeconds() },
+            { "exp", expiresAt.ToUnixTimeSeconds() },
             { "scope", string.Join(" ", scopes) }
         };
 
@@ -578,23 +583,23 @@ public class Program
         var jwtToken = $"{headerBase64}.{payloadBase64}.{WebEncoders.Base64UrlEncode(signature)}";
         var refreshToken = GenerateRandomToken();
 
-        _tokens[refreshToken] = new TokenInfo 
-        { 
-            ClientId = clientId, 
-            Scopes = scopes, 
-            IssuedAt = issuedAt, 
-            ExpiresAt = expiresAt, 
-            Resource = resource, 
-            JwtId = jwtId 
+        _tokens[refreshToken] = new TokenInfo
+        {
+            ClientId = clientId,
+            Scopes = scopes,
+            IssuedAt = issuedAt,
+            ExpiresAt = expiresAt,
+            Resource = resource,
+            JwtId = jwtId
         };
 
-        return new TokenResponse 
-        { 
-            AccessToken = jwtToken, 
-            RefreshToken = refreshToken, 
-            TokenType = "Bearer", 
-            ExpiresIn = (int)expiresIn.TotalSeconds, 
-            Scope = string.Join(" ", scopes) 
+        return new TokenResponse
+        {
+            AccessToken = jwtToken,
+            RefreshToken = refreshToken,
+            TokenType = "Bearer",
+            ExpiresIn = (int)expiresIn.TotalSeconds,
+            Scope = string.Join(" ", scopes)
         };
     }
 
@@ -610,5 +615,60 @@ public class Program
         return codeChallenge == WebEncoders.Base64UrlEncode(challengeBytes);
     }
 
+    private static void LoadClientsFromFile()
+    {
+        if (File.Exists(ClientsFile))
+        {
+            try
+            {
+                var json = File.ReadAllText(ClientsFile);
+                var clients = JsonSerializer.Deserialize<Dictionary<string, ClientInfo>>(json);
+                if (clients != null)
+                {
+                    foreach (var kvp in clients)
+                    {
+                        _clients[kvp.Key] = kvp.Value;
+                    }
+                    Console.WriteLine($"Loaded {clients.Count} registered clients from {ClientsFile}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading clients: {ex.Message}");
+            }
+        }
+    }
+
+    private static void SaveClientsToFile()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(_clients.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+                new JsonSerializerOptions
+                { WriteIndented = true });
+            File.WriteAllText(ClientsFile, json);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving clients: {ex.Message}");
+        }
+    }
+
+    private static RSA CreatePersistentRSAKey()
+    {
+        var keyFile = "oauth-key.xml";
+        if (File.Exists(keyFile))
+        {
+            var rsa = RSA.Create();
+            rsa.FromXmlString(File.ReadAllText(keyFile));
+            return rsa;
+        }
+        else
+        {
+            var rsa = RSA.Create(2048);
+            File.WriteAllText(keyFile, rsa.ToXmlString(true));
+            return rsa;
+        }
+    }
     #endregion
 }

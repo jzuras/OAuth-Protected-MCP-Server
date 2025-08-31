@@ -28,7 +28,7 @@ https://www.linkedin.com/feed/update/urn:li:share:7364031524003815424/
 ### OAuth 2.0 Capabilities
 - **Full OAuth 2.0 flow support** - Authorization code, client credentials, refresh tokens
 - **PKCE support** (S256 code challenge)
-- **Dynamic client registration** (RFC 7591)
+- **Dynamic client registration** (basic RFC 7591 support)
 - **Token introspection** endpoint
 - **Multiple grant types** (authorization_code, client_credentials, refresh_token)
 - **8-hour token expiration** (configurable)
@@ -47,10 +47,11 @@ https://www.linkedin.com/feed/update/urn:li:share:7364031524003815424/
 - **Clear URL separation** - public ngrok URLs vs local Kestrel binding
 
 ### Key Implementation Details
-- **Static RSA keys** - Uses persistent RSA key for JWT signing (resolves key ID mismatch issues)
-- **In-memory OAuth server** for development/testing
+- **Persistent RSA keys** - RSA signing keys saved to file and reloaded on restart
+- **Hybrid OAuth storage** - Core OAuth server in-memory with persistent client registration
+- **Client persistence** - Dynamically registered clients saved to `oauth-clients.json`
 - **Audience/Issuer validation** - proper JWT claim validation
-- **In-memory storage** - all OAuth state (codes, tokens, clients) stored in memory
+- **File-based persistence** - RSA keys and registered clients survive server restarts
 
 ## Usage
 
@@ -119,7 +120,7 @@ dotnet run /path/to/your/enphase/data
 ## Development Notes
 
 ### OAuth Implementation
-- **RFC 7591 compliance** - Dynamic client registration
+- **Basic RFC 7591 support** - Dynamic client registration
 - **PKCE required** - S256 code challenge method only
 - **Resource validation** - Validates audience claims in JWT tokens
 - **Refresh token support** - Long-lived access with token rotation
@@ -130,9 +131,10 @@ dotnet run /path/to/your/enphase/data
 - **HTTP transport** - Stateless operation for compatibility with AI agents
 
 ### Security Considerations
-- **Development use only** - In-memory storage not suitable for production
-- **Static RSA keys** - Keys regenerated on each application restart
+- **Development use only** - File-based storage not suitable for production
+- **Persistent RSA keys** - Keys saved to local files for development convenience
 - **Local binding** - Server binds to localhost, external access via ngrok only
+- **Client persistence** - OAuth client registrations persist across restarts
 
 ## Troubleshooting
 
@@ -158,6 +160,9 @@ This implementation combines and extends code from the [Model Context Protocol C
 - **Merged architecture** - Single process for both OAuth and MCP servers
 - **ngrok compatibility** - External access through tunneling
 - **Azure AI Foundry support** - Stateless transport configuration
+- **Enhanced OAuth flow** - Core OAuth 2.0 flows with additional endpoints
+- **Persistent state** - RSA keys and client registrations survive server restarts
+- **GitHub Copilot compatibility** - Handles clients that expect OAuth state persistence
 
 
 ## Copyright and License
